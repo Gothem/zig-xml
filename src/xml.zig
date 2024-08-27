@@ -56,7 +56,7 @@ fn readAttributes(allocator: std.mem.Allocator, tag: []u8) !std.StringHashMap([]
     var it = std.mem.tokenizeScalar(u8, tag, ' ');
     while (it.next()) |word| {
         const idx = std.mem.indexOfScalarPos(u8, word, 0, '=') orelse return error.InvalidArgument;
-        const endidx = std.mem.indexOfScalarPos(u8, word, idx + 2, '"') orelse return error.InvalidArgument;
+        const endidx = std.mem.indexOfAnyPos(u8, word, idx + 2, "\"'") orelse return error.InvalidArgument;
 
         const key = word[0..idx];
         const value = word[idx + 2 .. endidx];
@@ -93,7 +93,8 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
             else => {
                 // New node
                 const name = readName(tag);
-                const attributes = try readAttributes(allocator, tag[name.len..]);
+                const endpoint = if (tag[tag.len - 1] == '/') tag.len - 1 else tag.len;
+                const attributes = try readAttributes(allocator, tag[name.len..endpoint]);
 
                 var node = try Node.create(allocator, name, "", attributes);
 

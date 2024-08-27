@@ -21,6 +21,14 @@ pub const Node = struct {
         for (self.childrens.items) |child| {
             child.destroy(allocator);
         }
+        var iter = self.attributes.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        self.attributes.deinit();
+        self.childrens.deinit();
+        allocator.free(self.name);
         allocator.destroy(self);
     }
 
@@ -58,8 +66,8 @@ fn readAttributes(allocator: std.mem.Allocator, tag: []u8) !std.StringHashMap([]
         const idx = std.mem.indexOfScalarPos(u8, word, 0, '=') orelse return error.InvalidArgument;
         const endidx = std.mem.indexOfAnyPos(u8, word, idx + 2, "\"'") orelse return error.InvalidArgument;
 
-        const key = word[0..idx];
-        const value = word[idx + 2 .. endidx];
+        const key = try allocator.dupe(u8, word[0..idx]);
+        const value = try allocator.dupe(u8, word[idx + 2 .. endidx]);
 
         try attributes.put(key, value);
     }
@@ -74,11 +82,20 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
 
     var bufferedReader = std.io.bufferedReader(file.reader());
     const reader = bufferedReader.reader();
+
+    var tag = std.ArrayList(u8).init(allocator);
+    defer tag.deinit();
+
     var currentNode: ?*Node = null;
-    while (true) {
+    while (true) : (tag.clearRetainingCapacity()) {
         try reader.skipUntilDelimiterOrEof('<');
-        const tag = try reader.readUntilDelimiterOrEofAlloc(allocator, '>', 4096) orelse break;
-        switch (tag[0]) {
+        reader.streamUntilDelimiter(tag.writer(), '>', null) catch |err| {
+            if (err != error.EndOfStream) return err;
+        };
+
+        if (tag.items.len == 0) break;
+
+        switch (tag.items[0]) {
             '!', '?' => {
                 // Comment or declaration
             },
@@ -92,9 +109,9 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
             },
             else => {
                 // New node
-                const name = readName(tag);
-                const endpoint = if (tag[tag.len - 1] == '/') tag.len - 1 else tag.len;
-                const attributes = try readAttributes(allocator, tag[name.len..endpoint]);
+                const name = try allocator.dupe(u8, readName(tag.items));
+                const endpoint = if (tag.items[tag.items.len - 1] == '/') tag.items.len - 1 else tag.items.len;
+                const attributes = try readAttributes(allocator, tag.items[name.len..endpoint]);
 
                 var node = try Node.create(allocator, name, "", attributes);
 
@@ -102,7 +119,7 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
                     try parentNode.childrens.append(node);
                     node.parent = parentNode;
                 }
-                if (tag[tag.len - 1] != '/')
+                if (tag.items[tag.items.len - 1] != '/')
                     currentNode = node;
             },
         }

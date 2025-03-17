@@ -1,5 +1,6 @@
 .{
-    .name = "zig-xml",
+    .name = .xml,
+    .fingerprint = 0x31f4d8634a577730,
     .version = "0.1.0",
     .paths = .{
         "build.zig",

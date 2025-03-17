@@ -128,3 +128,13 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
 
     return currentNode.?;
 }
+
+test "read xml" {
+    //const xml = try loadFromPath(std.testing.allocator, "dbus-status-notifier-item.xml");
+    //const xml = try loadFromPath(std.testing.allocator, "dbus-menu.xml");
+    const xml = try loadFromPath(std.testing.allocator, "org.kde.StatusNotifierWatcher.xml");
+
+    const stdout = std.io.getStdOut();
+    try xml.stringify(stdout.writer(), 0);
+    xml.destroy(std.testing.allocator);
+}

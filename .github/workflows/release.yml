@@ -1,0 +1,43 @@
+name: release
+permissions:
+  contents: write
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "build.zig.zon"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checking out repository..."
+        uses: "actions/checkout@v4"
+        with:
+          fetch-depth: 1 # Fetch only the latest commit
+          sparse-checkout: build.zig.zon
+          sparse-checkout-cone-mode: false
+      - name: Get zig version
+        run: |
+          zig_version=$(grep -oP '\.version\s*=\s*"\K[^"]+' build.zig.zon)
+          echo "zig_version=$zig_version" >> $GITHUB_ENV
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          git fetch --tags # Make sure you have all tags
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          # Check if no tag is found and fallback to 'dev'
+          if [ -z "$latest_tag" ]; then
+            latest_tag="0"  # Use 'dev' when no tags exist
+          fi
+
+          # Export the result as an environment variable
+          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+      - name: "Publishing GitHub release..."
+        if: ${{ env.zig_version != env.latest_tag }}
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.zig_version }}
+          generateReleaseNotes: true

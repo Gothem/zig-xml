@@ -12,7 +12,7 @@ pub const Node = struct {
         node.name = name;
         node.value = value;
         node.attributes = attributes;
-        node.childrens = std.ArrayList(*Node).init(allocator);
+        node.childrens = .empty;
         node.parent = null;
         return node;
     }
@@ -27,24 +27,24 @@ pub const Node = struct {
             allocator.free(entry.value_ptr.*);
         }
         self.attributes.deinit();
-        self.childrens.deinit();
+        self.childrens.deinit(allocator);
         allocator.free(self.name);
         allocator.destroy(self);
     }
 
-    fn stringify(self: *Node, out_stream: anytype, depth: usize) !void {
-        try out_stream.writeByteNTimes(' ', depth);
-        try out_stream.print("{s} {{ ", .{self.name});
+    fn stringify(self: *Node, writer: *std.io.Writer, depth: usize) !void {
+        _ = try writer.splatByte(' ', depth);
+        try writer.print("{s} {{ ", .{self.name});
         var it = self.attributes.iterator();
         while (it.next()) |entry| {
-            try out_stream.print("{s} = {s} | ", .{ entry.key_ptr.*, entry.value_ptr.* });
+            try writer.print("{s} = {s} | ", .{ entry.key_ptr.*, entry.value_ptr.* });
         }
-        try out_stream.print("\n", .{});
+        try writer.print("\n", .{});
         for (self.childrens.items) |child| {
-            try child.stringify(out_stream, depth + 2);
+            try child.stringify(writer, depth + 2);
         }
-        try out_stream.writeByteNTimes(' ', depth);
-        try out_stream.print("}}\n", .{});
+        _ = try writer.splatByte(' ', depth);
+        try writer.print("}}\n", .{});
     }
 };
 
@@ -80,22 +80,14 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
-    var bufferedReader = std.io.bufferedReader(file.reader());
-    const reader = bufferedReader.reader();
-
-    var tag = std.ArrayList(u8).init(allocator);
-    defer tag.deinit();
+    var buffer: [4096]u8 = undefined;
+    var file_reader = file.reader(&buffer);
+    const reader = &file_reader.interface;
 
     var currentNode: ?*Node = null;
-    while (true) : (tag.clearRetainingCapacity()) {
-        try reader.skipUntilDelimiterOrEof('<');
-        reader.streamUntilDelimiter(tag.writer(), '>', null) catch |err| {
-            if (err != error.EndOfStream) return err;
-        };
-
-        if (tag.items.len == 0) break;
-
-        switch (tag.items[0]) {
+    _ = try reader.discardDelimiterInclusive('<');
+    while (reader.takeDelimiterExclusive('>')) |tag| : (_ = reader.discardDelimiterInclusive('<') catch 0) {
+        switch (tag[0]) {
             '!', '?' => {
                 // Comment or declaration
             },
@@ -109,20 +101,22 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
             },
             else => {
                 // New node
-                const name = try allocator.dupe(u8, readName(tag.items));
-                const endpoint = if (tag.items[tag.items.len - 1] == '/') tag.items.len - 1 else tag.items.len;
-                const attributes = try readAttributes(allocator, tag.items[name.len..endpoint]);
+                const name = try allocator.dupe(u8, readName(tag));
+                const endpoint = if (tag[tag.len - 1] == '/') tag.len - 1 else tag.len;
+                const attributes = try readAttributes(allocator, tag[name.len..endpoint]);
 
                 var node = try Node.create(allocator, name, "", attributes);
 
                 if (currentNode) |parentNode| {
-                    try parentNode.childrens.append(node);
+                    try parentNode.childrens.append(allocator, node);
                     node.parent = parentNode;
                 }
-                if (tag.items[tag.items.len - 1] != '/')
+                if (tag[tag.len - 1] != '/')
                     currentNode = node;
             },
         }
+    } else |err| {
+        if (err != error.EndOfStream) return err;
     }
     if (currentNode == null) return error.NoNodeFound;
 
@@ -130,11 +124,12 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
 }
 
 test "read xml" {
-    //const xml = try loadFromPath(std.testing.allocator, "dbus-status-notifier-item.xml");
-    //const xml = try loadFromPath(std.testing.allocator, "dbus-menu.xml");
     const xml = try loadFromPath(std.testing.allocator, "org.kde.StatusNotifierWatcher.xml");
 
-    const stdout = std.io.getStdOut();
-    try xml.stringify(stdout.writer(), 0);
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
+    try xml.stringify(stdout, 0);
     xml.destroy(std.testing.allocator);
 }

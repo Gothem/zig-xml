@@ -45,6 +45,7 @@ pub const Node = struct {
         }
         _ = try writer.splatByte(' ', depth);
         try writer.print("}}\n", .{});
+        try writer.flush();
     }
 };
 
@@ -128,9 +129,9 @@ test "read xml" {
     const xml = try loadFromPath(std.testing.allocator, io, "org.kde.StatusNotifierWatcher.xml");
 
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &buffer);
-    const stdout = &stdout_writer.interface;
+    var writer: std.Io.Writer = .fixed(&buffer);
 
-    try xml.stringify(stdout, 0);
+    try xml.stringify(&writer, 0);
+    std.debug.print("{s}\n", .{buffer});
     xml.destroy(std.testing.allocator);
 }

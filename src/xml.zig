@@ -32,7 +32,7 @@ pub const Node = struct {
         allocator.destroy(self);
     }
 
-    fn stringify(self: *Node, writer: *std.io.Writer, depth: usize) !void {
+    fn stringify(self: *Node, writer: *std.Io.Writer, depth: usize) !void {
         _ = try writer.splatByte(' ', depth);
         try writer.print("{s} {{ ", .{self.name});
         var it = self.attributes.iterator();
@@ -76,12 +76,12 @@ fn readAttributes(allocator: std.mem.Allocator, tag: []u8) !std.StringHashMap([]
 }
 
 // TODO: Read node value from file
-pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+pub fn loadFromPath(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !*Node {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
     var buffer: [4096]u8 = undefined;
-    var file_reader = file.reader(&buffer);
+    var file_reader = file.reader(io, &buffer);
     const reader = &file_reader.interface;
 
     var currentNode: ?*Node = null;
@@ -124,10 +124,11 @@ pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !*Node {
 }
 
 test "read xml" {
-    const xml = try loadFromPath(std.testing.allocator, "org.kde.StatusNotifierWatcher.xml");
+    const io = std.testing.io;
+    const xml = try loadFromPath(std.testing.allocator, io, "org.kde.StatusNotifierWatcher.xml");
 
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(io, &buffer);
     const stdout = &stdout_writer.interface;
 
     try xml.stringify(stdout, 0);
